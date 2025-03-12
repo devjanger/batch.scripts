@@ -23,8 +23,9 @@ endlocal & exit /b %errorlevel%
 
 */
 
-// reference  
+// reference
 // https://gallery.technet.microsoft.com/scriptcenter/eeff544a-f690-4f6b-a586-11eea6fc5eb8
+// https://stackoverflow.com/questions/43187663/c-sharp-how-to-get-real-screen-resolution-in-multiple-monitors-context
 
 using System;
 using System.Runtime.InteropServices;

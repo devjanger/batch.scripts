@@ -32,6 +32,7 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.Collections.Generic;
 using Microsoft.VisualBasic;
+using System.Windows.Forms;
 
 
 /// Provides functions to capture the entire screen, or a particular window, and save it to a file. 
@@ -39,31 +40,19 @@ using Microsoft.VisualBasic;
 public class ScreenCapture
 {
 
-    /// Creates an Image object containing a screen shot the active window 
-
-    public Image CaptureActiveWindow()
-    {
-        return CaptureWindow(User32.GetForegroundWindow());
-    }
-
     /// Creates an Image object containing a screen shot of the entire desktop 
 
-    public Image CaptureScreen()
+    public Image CaptureScreen(int x, int y, int width, int height)
     {
-        return CaptureWindow(User32.GetDesktopWindow());
+        return CaptureWindow(User32.GetDesktopWindow(), x, y, width, height);
     }
 
     /// Creates an Image object containing a screen shot of a specific window 
 
-    private Image CaptureWindow(IntPtr handle)
+    private Image CaptureWindow(IntPtr handle, int x, int y, int width, int height)
     {
         // get te hDC of the target window 
         IntPtr hdcSrc = User32.GetWindowDC(handle);
-        // get the size 
-        User32.RECT windowRect = new User32.RECT();
-        User32.GetWindowRect(handle, ref windowRect);
-        int width = windowRect.right - windowRect.left;
-        int height = windowRect.bottom - windowRect.top;
         // create a device context we can copy to 
         IntPtr hdcDest = GDI32.CreateCompatibleDC(hdcSrc);
         // create a bitmap we can copy it to, 
@@ -72,7 +61,7 @@ public class ScreenCapture
         // select the bitmap object 
         IntPtr hOld = GDI32.SelectObject(hdcDest, hBitmap);
         // bitblt over 
-        GDI32.BitBlt(hdcDest, 0, 0, width, height, hdcSrc, 0, 0, GDI32.SRCCOPY);
+        GDI32.BitBlt(hdcDest, 0, 0, width, height, hdcSrc, x, y, GDI32.SRCCOPY);
         // restore selection 
         GDI32.SelectObject(hdcDest, hOld);
         // clean up 
@@ -85,22 +74,46 @@ public class ScreenCapture
         return img;
     }
 
-    public void CaptureActiveWindowToFile(string filename, ImageFormat format)
-    {
-        Image img = CaptureActiveWindow();
-        img.Save(filename, format);
-    }
-
     public void CaptureScreenToFile(string filename, ImageFormat format)
     {
-        Image img = CaptureScreen();
+        const int ENUM_CURRENT_SETTINGS = -1;
+        
+        int x = 9999;
+        int y = 0;
+
+        int width = 0;
+        int height = 0;
+
+        foreach (Screen screen in Screen.AllScreens)
+        {
+            var dm = new DEVMODE();
+            dm.dmSize = (short)Marshal.SizeOf(typeof(DEVMODE));
+            EnumDisplaySettings(screen.DeviceName, ENUM_CURRENT_SETTINGS, ref dm);
+
+            if (dm.dmPositionX < x)
+            {
+                x = dm.dmPositionX;
+            }
+            if (dm.dmPositionY < y)
+            {
+                y = dm.dmPositionY;
+            }
+            
+            width += dm.dmPelsWidth;
+
+            if(dm.dmPelsHeight > height)
+            {
+                height = dm.dmPelsHeight;
+            }
+
+        }
+        Image img = CaptureScreen(x, y, width, height);
         img.Save(filename, format);
     }
 
     static bool fullscreen = true;
     static String file = "screenshot.bmp";
     static System.Drawing.Imaging.ImageFormat format = System.Drawing.Imaging.ImageFormat.Bmp;
-    static String windowTitle = "";
 
     static void parseArguments()
     {
@@ -153,13 +166,6 @@ public class ScreenCapture
             Environment.Exit(8);
         }
 
-
-        if (arguments.Length > 2)
-        {
-            windowTitle = arguments[2];
-            fullscreen = false;
-        }
-
     }
 
     static void printHelp()
@@ -167,17 +173,13 @@ public class ScreenCapture
         //clears the extension from the script name
         String scriptName = Environment.GetCommandLineArgs()[0];
         scriptName = scriptName.Substring(0, scriptName.Length);
-        Console.WriteLine(scriptName + " captures the screen or the active window and saves it to a file.");
+        Console.WriteLine(scriptName + " captures the screen and saves it to a file.");
         Console.WriteLine("");
         Console.WriteLine("Usage:");
-        Console.WriteLine(" " + scriptName + " filename  [WindowTitle]");
+        Console.WriteLine(" " + scriptName + " filename");
         Console.WriteLine("");
         Console.WriteLine("filename - the file where the screen capture will be saved");
         Console.WriteLine("     allowed file extensions are - Bmp,Emf,Exif,Gif,Icon,Jpeg,Png,Tiff,Wmf.");
-        Console.WriteLine("WindowTitle - instead of capture whole screen you can point to a window ");
-        Console.WriteLine("     with a title which will put on focus and captuted.");
-        Console.WriteLine("     For WindowTitle you can pass only the first few characters.");
-        Console.WriteLine("     If don't want to change the current active window pass only \"\"");
     }
 
     public static void Main()
@@ -186,34 +188,12 @@ public class ScreenCapture
         
         parseArguments();
         ScreenCapture sc = new ScreenCapture();
-        if (!fullscreen && !windowTitle.Equals(""))
-        {
-            try
-            {
-
-                Interaction.AppActivate(windowTitle);
-                Console.WriteLine("setting " + windowTitle + " on focus");
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine("Probably there's no window like " + windowTitle);
-                Console.WriteLine(e.ToString());
-                Environment.Exit(9);
-            }
-
-
-        }
         try
         {
             if (fullscreen)
             {
                 Console.WriteLine("Taking a capture of the whole screen to " + file);
                 sc.CaptureScreenToFile(file, format);
-            }
-            else
-            {
-                Console.WriteLine("Taking a capture of the active window to " + file);
-                sc.CaptureActiveWindowToFile(file, format);
             }
         }
         catch (Exception e)
@@ -272,4 +252,45 @@ public class ScreenCapture
         [DllImport("user32.dll")]
         public static extern int SetProcessDPIAware();
     }
+
+    [DllImport("user32.dll")]
+   static extern bool EnumDisplaySettings(string lpszDeviceName, int iModeNum, ref DEVMODE lpDevMode);
+
+   [StructLayout(LayoutKind.Sequential)]
+   public struct DEVMODE
+   {
+      [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 0x20)]
+      public string dmDeviceName;
+      public short dmSpecVersion;
+      public short dmDriverVersion;
+      public short dmSize;
+      public short dmDriverExtra;
+      public int dmFields;
+      public int dmPositionX;
+      public int dmPositionY;
+      public ScreenOrientation dmDisplayOrientation;
+      public int dmDisplayFixedOutput;
+      public short dmColor;
+      public short dmDuplex;
+      public short dmYResolution;
+      public short dmTTOption;
+      public short dmCollate;
+      [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 0x20)]
+      public string dmFormName;
+      public short dmLogPixels;
+      public int dmBitsPerPel;
+      public int dmPelsWidth;
+      public int dmPelsHeight;
+      public int dmDisplayFlags;
+      public int dmDisplayFrequency;
+      public int dmICMMethod;
+      public int dmICMIntent;
+      public int dmMediaType;
+      public int dmDitherType;
+      public int dmReserved1;
+      public int dmReserved2;
+      public int dmPanningWidth;
+      public int dmPanningHeight;
+   }
+
 }
